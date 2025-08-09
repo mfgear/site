@@ -400,13 +400,73 @@ export default function DiamondBandit() {
     }
 
     function drawTitle(ctx: CanvasRenderingContext2D) {
-      ctx.fillStyle = matchMedia('(prefers-color-scheme: dark)').matches ? '#e5e7eb' : '#111827';
-      ctx.font = 'bold 44px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+      ctx.save();
       ctx.textAlign = 'center';
-      ctx.fillText('Diamond Bandit', CANVAS_LOGICAL.x / 2, CANVAS_LOGICAL.y / 2 - 40);
+
+      // Animated pulse for the hero diamond
+      const t = (performance.now() / 1000) % 1000;
+      const pulse = 1 + Math.sin(t * 2) * 0.06;
+
+      // Background subtle vignette
+      const bg = ctx.createRadialGradient(
+        CANVAS_LOGICAL.x / 2,
+        CANVAS_LOGICAL.y / 2,
+        60,
+        CANVAS_LOGICAL.x / 2,
+        CANVAS_LOGICAL.y / 2,
+        Math.max(CANVAS_LOGICAL.x, CANVAS_LOGICAL.y)
+      );
+      bg.addColorStop(0, 'rgba(59,130,246,0.06)');
+      bg.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, CANVAS_LOGICAL.x, CANVAS_LOGICAL.y);
+
+      // Glowing diamond
+      const dx = CANVAS_LOGICAL.x / 2;
+      const dy = CANVAS_LOGICAL.y / 2 - 30;
+      const size = 90 * pulse;
+
+      // Outer glow
+      ctx.save();
+      const glow = ctx.createRadialGradient(dx, dy, 10, dx, dy, size * 1.4);
+      glow.addColorStop(0, 'rgba(34,197,94,0.35)');
+      glow.addColorStop(1, 'rgba(34,197,94,0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(dx, dy, size * 1.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // Diamond body (rotated square)
+      drawDiamond(ctx, dx, dy, size, '#22c55e');
+
+      // Sparkles
+      ctx.save();
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      for (let i = 0; i < 12; i++) {
+        const ang = (i / 12) * Math.PI * 2 + t * 0.6;
+        const r = size * (1.0 + (i % 2 ? 0.15 : 0.25));
+        const sx = dx + Math.cos(ang) * r;
+        const sy = dy + Math.sin(ang) * r;
+        ctx.fillRect(sx, sy, 2, 2);
+      }
+      ctx.restore();
+
+      // Title
+      ctx.fillStyle = matchMedia('(prefers-color-scheme: dark)').matches ? '#e5e7eb' : '#111827';
+      ctx.font = 'bold 48px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+      ctx.fillText('Diamond Bandit', CANVAS_LOGICAL.x / 2, dy - size * 0.9);
+
+      // Subtitle and prompt
       ctx.font = '18px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
-      ctx.fillText('WASD to move. Avoid red squares. Touch the diamond to advance.', CANVAS_LOGICAL.x / 2, CANVAS_LOGICAL.y / 2);
-      ctx.fillText('Press Space or Enter to start', CANVAS_LOGICAL.x / 2, CANVAS_LOGICAL.y / 2 + 36);
+      ctx.fillText('WASD to move. Avoid enemies. Touch the diamond to advance.', CANVAS_LOGICAL.x / 2, dy + size * 0.9 + 8);
+
+      ctx.font = '600 18px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+      const blink = (Math.sin(t * 3) + 1) / 2; // 0..1
+      ctx.fillStyle = `rgba(59,130,246,${0.5 + 0.5 * blink})`;
+      ctx.fillText('Press Space or Enter to start', CANVAS_LOGICAL.x / 2, dy + size * 0.9 + 36);
+
+      ctx.restore();
     }
 
     function drawVictory(ctx: CanvasRenderingContext2D) {
