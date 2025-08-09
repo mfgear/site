@@ -8,6 +8,10 @@ type EnemyMode = 'wander' | 'seek';
 
 type Enemy = { pos: Vec; vel: Vec; size: number; color: string; kind: EnemyKind; alpha?: number; speed: number; detectRadius: number; mode: EnemyMode; willSeek: boolean };
 
+type ThemeName = 'Desert' | 'Ice' | 'Fire' | 'Wind' | 'Void';
+
+type Particle = { x: number; y: number; vx: number; vy: number; size: number; alpha: number; shape: 'dot' | 'line'; color: string };
+
 type GameState =
   | { kind: 'menu' }
   | { kind: 'playing'; level: number; enemies: Enemy[]; player: Vec; diamond: Vec }
@@ -187,11 +191,42 @@ function themeForLevel(level: number) {
   }
 }
 
+// Simple sound synthesizer
+class Sound {
+  private ctx: AudioContext | null = null;
+  private ensure() { if (!this.ctx) this.ctx = new (window.AudioContext || (window as any).webkitAudioContext)(); }
+  private tone(freq: number, duration: number, type: OscillatorType = 'sine', gain = 0.05) {
+    this.ensure();
+    const ctx = this.ctx!;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    g.gain.value = gain;
+    osc.connect(g).connect(ctx.destination);
+    const now = ctx.currentTime;
+    // short attack/decay envelope
+    g.gain.setValueAtTime(0, now);
+    g.gain.linearRampToValueAtTime(gain, now + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    osc.start(now);
+    osc.stop(now + duration + 0.02);
+  }
+  start() { this.tone(660, 0.2, 'triangle', 0.06); this.tone(990, 0.15, 'sine', 0.04); }
+  levelUp() { this.tone(740, 0.12, 'triangle'); setTimeout(() => this.tone(880, 0.12, 'triangle'), 90); }
+  diamond() { this.tone(1046, 0.1, 'sine', 0.04); }
+  hit() { this.tone(196, 0.18, 'sawtooth', 0.06); }
+  victory() { this.tone(784, 0.15, 'square', 0.05); setTimeout(() => this.tone(988, 0.15, 'square', 0.05), 120); setTimeout(() => this.tone(1174, 0.2, 'square', 0.05), 240); }
+}
+
 export default function DiamondBandit() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [state, setState] = useState<GameState>({ kind: 'menu' });
   const keys = useRef<Record<string, boolean>>({});
   const rafRef = useRef<number | null>(null);
+  const timeRef = useRef<number>(0);
+  const parallaxRef = useRef<Particle[] | null>(null);
+  const soundRef = useRef<Sound | null>(null);
   const lastRef = useRef<number | null>(null);
 
   const scaleCss = useMemo(() => ({ width: '100%', height: 'auto', aspectRatio: `${CANVAS_LOGICAL.x} / ${CANVAS_LOGICAL.y}` }), []);
@@ -201,7 +236,7 @@ export default function DiamondBandit() {
       const k = e.key.toLowerCase();
       if (['w', 'a', 's', 'd', ' '].includes(k)) e.preventDefault();
       keys.current[k] = true;
-      if (state.kind === 'menu' && (k === ' ' || k === 'enter')) startLevel(1);
+      if (state.kind === 'menu' && (k === ' ' || k === 'enter')) { soundRef.current?.start(); parallaxRef.current = null; startLevel(1); }
       if (state.kind === 'victory' && (k === ' ' || k === 'enter')) setState({ kind: 'menu' });
     };
     const onUp = (e: KeyboardEvent) => {
@@ -216,6 +251,7 @@ export default function DiamondBandit() {
   }, [state.kind]);
 
   function startLevel(level: number) {
+    if (!soundRef.current) soundRef.current = new Sound();
     const theme = themeForLevel(level);
     const homingKinds: EnemyKind[] = ['ball', 'void', 'shard'];
     const homingEnabledThisLevel = theme.name !== 'Wind';
@@ -270,9 +306,10 @@ export default function DiamondBandit() {
     function step(ts: number) {
       if (lastRef.current == null) lastRef.current = ts;
       const dt = Math.min(0.033, (ts - lastRef.current) / 1000);
+      timeRef.current += dt;
       lastRef.current = ts;
       update(dt);
-      render();
+      render(dt);
       rafRef.current = requestAnimationFrame(step);
     }
 
@@ -338,6 +375,7 @@ export default function DiamondBandit() {
         if (aabb(playerBox, enemyBox)) {
           // Drop back by one level (but not below level 1)
           const back = Math.max(1, next.level - 1);
+          soundRef.current?.hit();
           startLevel(back);
           return;
         }
@@ -346,9 +384,14 @@ export default function DiamondBandit() {
       if (diamondHit(next.player, next.diamond)) {
         const nextLevel = next.level + 1;
         if (nextLevel > 5) {
+          soundRef.current?.victory();
           setState({ kind: 'victory' });
           return;
         } else {
+          soundRef.current?.diamond();
+          soundRef.current?.levelUp();
+          // reset parallax for new theme
+          parallaxRef.current = null;
           startLevel(nextLevel);
           return;
         }
@@ -362,11 +405,69 @@ export default function DiamondBandit() {
       ctx.fillRect(0, 0, CANVAS_LOGICAL.x, CANVAS_LOGICAL.y);
     }
 
-    function render() {
+    function ensureParallax(theme: ThemeName) {
+      if (parallaxRef.current) return;
+      const parts: Particle[] = [];
+      const add = (n: number, cfg: { vx: number; vy: number; size: [number, number]; alpha: number; color: string; shape: 'dot' | 'line' }) => {
+        for (let i = 0; i < n; i++) {
+          parts.push({
+            x: Math.random() * CANVAS_LOGICAL.x,
+            y: Math.random() * CANVAS_LOGICAL.y,
+            vx: cfg.vx * (0.5 + Math.random()),
+            vy: cfg.vy * (0.5 + Math.random()),
+            size: cfg.size[0] + Math.random() * (cfg.size[1] - cfg.size[0]),
+            alpha: cfg.alpha,
+            shape: cfg.shape,
+            color: cfg.color,
+          });
+        }
+      };
+      switch (theme) {
+        case 'Desert':
+          add(60, { vx: -5, vy: 0, size: [1, 2], alpha: 0.15, color: '#b4530922', shape: 'dot' });
+          break;
+        case 'Ice':
+          add(80, { vx: -8, vy: 4, size: [1, 2], alpha: 0.2, color: '#60a5fa44', shape: 'dot' });
+          break;
+        case 'Fire':
+          add(70, { vx: 0, vy: -12, size: [1, 2], alpha: 0.2, color: '#fb923c44', shape: 'dot' });
+          break;
+        case 'Wind':
+          add(50, { vx: -20, vy: 0, size: [8, 16], alpha: 0.12, color: '#94a3b855', shape: 'line' });
+          break;
+        case 'Void':
+          add(120, { vx: -6, vy: 0, size: [1, 2], alpha: 0.25, color: '#a78bfa66', shape: 'dot' });
+          break;
+      }
+      parallaxRef.current = parts;
+    }
+
+    function drawParallax(ctx: CanvasRenderingContext2D, theme: ThemeName, dt: number) {
+      ensureParallax(theme);
+      const parts = parallaxRef.current!;
+      ctx.save();
+      for (const p of parts) {
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        if (p.x < 0) p.x += CANVAS_LOGICAL.x; else if (p.x > CANVAS_LOGICAL.x) p.x -= CANVAS_LOGICAL.x;
+        if (p.y < 0) p.y += CANVAS_LOGICAL.y; else if (p.y > CANVAS_LOGICAL.y) p.y -= CANVAS_LOGICAL.y;
+        ctx.globalAlpha = p.alpha;
+        ctx.fillStyle = p.color;
+        if (p.shape === 'dot') ctx.fillRect(p.x, p.y, p.size, p.size);
+        else {
+          ctx.fillRect(p.x, p.y, p.size, 1);
+        }
+      }
+      ctx.restore();
+    }
+
+    function render(dt: number) {
       clear();
       // Background per level
       if (state.kind === 'playing') {
-        themeForLevel(state.level).bg(ctx);
+        const theme = themeForLevel(state.level);
+        theme.bg(ctx);
+        drawParallax(ctx, theme.name as ThemeName, dt);
       }
       // Border/playfield overlay
       ctx.strokeStyle = '#00000022';
