@@ -4,7 +4,9 @@ type Vec = { x: number; y: number };
 
 type EnemyKind = 'square' | 'ball' | 'shard' | 'gust' | 'void';
 
-type Enemy = { pos: Vec; vel: Vec; size: number; color: string; kind: EnemyKind; alpha?: number; speed: number; seek?: number };
+type EnemyMode = 'wander' | 'seek';
+
+type Enemy = { pos: Vec; vel: Vec; size: number; color: string; kind: EnemyKind; alpha?: number; speed: number; seekChance: number; detectRadius: number; mode: EnemyMode };
 
 type GameState =
   | { kind: 'menu' }
@@ -230,9 +232,11 @@ export default function DiamondBandit() {
       const velNorm = { x: rand(-1, 1), y: rand(-1, 1) };
       const len = Math.hypot(velNorm.x, velNorm.y) || 1;
       const vel = { x: (velNorm.x / len) * spd, y: (velNorm.y / len) * spd };
-      const seek = Math.random() < Math.min(0.2 + level * 0.12, 0.7) ? rand(0.3, 0.85) : 0;
-      enemies.push({ pos: { x: pos.x, y: pos.y }, vel, size: theme.enemySize, color: theme.enemyColor, kind: theme.enemyKind, alpha: theme.enemyKind === 'gust' ? 0.6 : 1, speed: spd, seek });
-      const s = theme.enemySize;
+      const seekChance = Math.min(0.15 + level * 0.1, 0.75);
+      const scaledSize = Math.round(theme.enemySize + (level - 1) * 2);
+      const detectRadius = 120 + level * 30; // pixels
+      enemies.push({ pos: { x: pos.x, y: pos.y }, vel, size: scaledSize, color: theme.enemyColor, kind: theme.enemyKind, alpha: theme.enemyKind === 'gust' ? 0.6 : 1, speed: spd, seekChance, detectRadius, mode: 'wander' });
+      const s = Math.round(theme.enemySize + (level - 1) * 2);
       items.push({ x: pos.x - s / 2, y: pos.y - s / 2, w: s, h: s });
     }
 
@@ -283,30 +287,41 @@ export default function DiamondBandit() {
 
       // Enemies movement + bounce
       for (const e of next.enemies) {
-        // Random and mild homing for a subset of enemies (not all, not constant)
+        // Determine behavior mode based on range and chance
         const homingKinds: EnemyKind[] = ['ball', 'void', 'shard'];
-        if ((e.seek ?? 0) > 0 && homingKinds.includes(e.kind) && Math.random() < 0.25) {
-          const toPlayer = { x: (next.player.x + PLAYER_SIZE / 2) - (e.pos.x + e.size / 2), y: (next.player.y + PLAYER_SIZE / 2) - (e.pos.y + e.size / 2) };
-          const len = Math.hypot(toPlayer.x, toPlayer.y) || 1;
-          const ax = (toPlayer.x / len);
-          const ay = (toPlayer.y / len);
-          const homing = (2 + next.level) * (e.seek ?? 0) * dt; // gentler, probabilistic
-          e.vel.x += ax * homing * e.speed;
-          e.vel.y += ay * homing * e.speed;
-          // re-normalize velocity to maintain target speed budget
-          const vlen = Math.hypot(e.vel.x, e.vel.y) || 1;
+        if (homingKinds.includes(e.kind)) {
+          const dx = (next.player.x + PLAYER_SIZE / 2) - (e.pos.x + e.size / 2);
+          const dy = (next.player.y + PLAYER_SIZE / 2) - (e.pos.y + e.size / 2);
+          const dist = Math.hypot(dx, dy);
+          if (e.mode === 'wander' && dist < e.detectRadius && Math.random() < e.seekChance) {
+            e.mode = 'seek';
+          } else if (e.mode === 'seek' && dist > e.detectRadius * 1.25) {
+            e.mode = 'wander';
+          }
+          if (e.mode === 'seek') {
+            const len = Math.max(1, Math.hypot(dx, dy));
+            e.vel.x = (dx / len) * e.speed;
+            e.vel.y = (dy / len) * e.speed;
+          }
+        }
+        // Wandering enemies occasionally change direction slightly
+        if (e.mode === 'wander' && Math.random() < 0.05) {
+          const jitter = 0.3;
+          e.vel.x += rand(-jitter, jitter) * e.speed * dt;
+          e.vel.y += rand(-jitter, jitter) * e.speed * dt;
+          const vlen = Math.max(1, Math.hypot(e.vel.x, e.vel.y));
           e.vel.x = (e.vel.x / vlen) * e.speed;
           e.vel.y = (e.vel.y / vlen) * e.speed;
         }
         e.pos.x += e.vel.x * dt;
         e.pos.y += e.vel.y * dt;
-        if (e.pos.x < 0 || e.pos.x > CANVAS_LOGICAL.x - ENEMY_SIZE) {
+        if (e.pos.x < 0 || e.pos.x > CANVAS_LOGICAL.x - e.size) {
           e.vel.x *= -1;
-          e.pos.x = clamp(e.pos.x, 0, CANVAS_LOGICAL.x - ENEMY_SIZE);
+          e.pos.x = clamp(e.pos.x, 0, CANVAS_LOGICAL.x - e.size);
         }
-        if (e.pos.y < 0 || e.pos.y > CANVAS_LOGICAL.y - ENEMY_SIZE) {
+        if (e.pos.y < 0 || e.pos.y > CANVAS_LOGICAL.y - e.size) {
           e.vel.y *= -1;
-          e.pos.y = clamp(e.pos.y, 0, CANVAS_LOGICAL.y - ENEMY_SIZE);
+          e.pos.y = clamp(e.pos.y, 0, CANVAS_LOGICAL.y - e.size);
         }
       }
 
