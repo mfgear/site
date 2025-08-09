@@ -4,7 +4,7 @@ type Vec = { x: number; y: number };
 
 type EnemyKind = 'square' | 'ball' | 'shard' | 'gust' | 'void';
 
-type Enemy = { pos: Vec; vel: Vec; size: number; color: string; kind: EnemyKind; alpha?: number; speed: number };
+type Enemy = { pos: Vec; vel: Vec; size: number; color: string; kind: EnemyKind; alpha?: number; speed: number; seek?: number };
 
 type GameState =
   | { kind: 'menu' }
@@ -230,7 +230,8 @@ export default function DiamondBandit() {
       const velNorm = { x: rand(-1, 1), y: rand(-1, 1) };
       const len = Math.hypot(velNorm.x, velNorm.y) || 1;
       const vel = { x: (velNorm.x / len) * spd, y: (velNorm.y / len) * spd };
-      enemies.push({ pos: { x: pos.x, y: pos.y }, vel, size: theme.enemySize, color: theme.enemyColor, kind: theme.enemyKind, alpha: theme.enemyKind === 'gust' ? 0.6 : 1, speed: spd });
+      const seek = Math.random() < Math.min(0.2 + level * 0.12, 0.7) ? rand(0.3, 0.85) : 0;
+      enemies.push({ pos: { x: pos.x, y: pos.y }, vel, size: theme.enemySize, color: theme.enemyColor, kind: theme.enemyKind, alpha: theme.enemyKind === 'gust' ? 0.6 : 1, speed: spd, seek });
       const s = theme.enemySize;
       items.push({ x: pos.x - s / 2, y: pos.y - s / 2, w: s, h: s });
     }
@@ -282,14 +283,14 @@ export default function DiamondBandit() {
 
       // Enemies movement + bounce
       for (const e of next.enemies) {
-        // Slight homing for select enemy types to increase difficulty
+        // Random and mild homing for a subset of enemies (not all, not constant)
         const homingKinds: EnemyKind[] = ['ball', 'void', 'shard'];
-        if (homingKinds.includes(e.kind)) {
+        if ((e.seek ?? 0) > 0 && homingKinds.includes(e.kind) && Math.random() < 0.25) {
           const toPlayer = { x: (next.player.x + PLAYER_SIZE / 2) - (e.pos.x + e.size / 2), y: (next.player.y + PLAYER_SIZE / 2) - (e.pos.y + e.size / 2) };
           const len = Math.hypot(toPlayer.x, toPlayer.y) || 1;
           const ax = (toPlayer.x / len);
           const ay = (toPlayer.y / len);
-          const homing = (4 + next.level * 2) * dt; // acceleration toward player
+          const homing = (2 + next.level) * (e.seek ?? 0) * dt; // gentler, probabilistic
           e.vel.x += ax * homing * e.speed;
           e.vel.y += ay * homing * e.speed;
           // re-normalize velocity to maintain target speed budget
@@ -314,8 +315,9 @@ export default function DiamondBandit() {
       for (const e of next.enemies) {
         const enemyBox = { x: e.pos.x, y: e.pos.y, w: e.size, h: e.size };
         if (aabb(playerBox, enemyBox)) {
-          // Reset to level 1
-          startLevel(1);
+          // Drop back by one level (but not below level 1)
+          const back = Math.max(1, next.level - 1);
+          startLevel(back);
           return;
         }
       }
