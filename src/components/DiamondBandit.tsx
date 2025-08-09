@@ -4,7 +4,7 @@ type Vec = { x: number; y: number };
 
 type EnemyKind = 'square' | 'ball' | 'shard' | 'gust' | 'void';
 
-type Enemy = { pos: Vec; vel: Vec; size: number; color: string; kind: EnemyKind; alpha?: number };
+type Enemy = { pos: Vec; vel: Vec; size: number; color: string; kind: EnemyKind; alpha?: number; speed: number };
 
 type GameState =
   | { kind: 'menu' }
@@ -15,9 +15,9 @@ const CANVAS_LOGICAL: Vec = { x: 900, y: 540 }; // 5:3 aspect, good for most scr
 const PLAYER_SIZE = 20; // logical size of the car body
 const ENEMY_SIZE = 20;
 const DIAMOND_SIZE = 24;
-const PLAYER_SPEED = 280; // px/s
-const ENEMY_SPEED_BASE = 110; // base px/s
-const LEVEL_ENEMIES = [2, 3, 5, 7, 9];
+const PLAYER_SPEED = 240; // px/s (reduced for higher difficulty)
+const ENEMY_SPEED_BASE = 140; // base px/s (increased for higher difficulty)
+const LEVEL_ENEMIES = [3, 5, 7, 10, 14];
 const LEVEL_NAMES = ['Desert', 'Ice', 'Fire', 'Wind', 'Void'] as const;
 
 function rand(min: number, max: number) {
@@ -230,7 +230,7 @@ export default function DiamondBandit() {
       const velNorm = { x: rand(-1, 1), y: rand(-1, 1) };
       const len = Math.hypot(velNorm.x, velNorm.y) || 1;
       const vel = { x: (velNorm.x / len) * spd, y: (velNorm.y / len) * spd };
-      enemies.push({ pos: { x: pos.x, y: pos.y }, vel, size: theme.enemySize, color: theme.enemyColor, kind: theme.enemyKind, alpha: theme.enemyKind === 'gust' ? 0.6 : 1 });
+      enemies.push({ pos: { x: pos.x, y: pos.y }, vel, size: theme.enemySize, color: theme.enemyColor, kind: theme.enemyKind, alpha: theme.enemyKind === 'gust' ? 0.6 : 1, speed: spd });
       const s = theme.enemySize;
       items.push({ x: pos.x - s / 2, y: pos.y - s / 2, w: s, h: s });
     }
@@ -282,6 +282,21 @@ export default function DiamondBandit() {
 
       // Enemies movement + bounce
       for (const e of next.enemies) {
+        // Slight homing for select enemy types to increase difficulty
+        const homingKinds: EnemyKind[] = ['ball', 'void', 'shard'];
+        if (homingKinds.includes(e.kind)) {
+          const toPlayer = { x: (next.player.x + PLAYER_SIZE / 2) - (e.pos.x + e.size / 2), y: (next.player.y + PLAYER_SIZE / 2) - (e.pos.y + e.size / 2) };
+          const len = Math.hypot(toPlayer.x, toPlayer.y) || 1;
+          const ax = (toPlayer.x / len);
+          const ay = (toPlayer.y / len);
+          const homing = (4 + next.level * 2) * dt; // acceleration toward player
+          e.vel.x += ax * homing * e.speed;
+          e.vel.y += ay * homing * e.speed;
+          // re-normalize velocity to maintain target speed budget
+          const vlen = Math.hypot(e.vel.x, e.vel.y) || 1;
+          e.vel.x = (e.vel.x / vlen) * e.speed;
+          e.vel.y = (e.vel.y / vlen) * e.speed;
+        }
         e.pos.x += e.vel.x * dt;
         e.pos.y += e.vel.y * dt;
         if (e.pos.x < 0 || e.pos.x > CANVAS_LOGICAL.x - ENEMY_SIZE) {
