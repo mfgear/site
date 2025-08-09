@@ -1,0 +1,12 @@
+node_modules
+.dist
+.cache
+.output
+.DS_Store
+coverage
+.playwright
+.vscode
+.env
+.env.*
+!.env.example
+

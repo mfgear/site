@@ -1,0 +1,11 @@
+/* Global CSS for non-tailwind tweaks */
+:root {
+  --radius: 12px;
+}
+
+.container {
+  max-width: 1100px;
+  margin-inline: auto;
+  padding-inline: 1rem;
+}
+

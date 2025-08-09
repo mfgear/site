@@ -1,0 +1,29 @@
+---
+import Site from "../layouts/Site.astro";
+import "@/styles/tailwind.css";
+import "@/styles/global.css";
+import DiamondBandit from "@/components/DiamondBandit";
+---
+
+<Site>
+  <section class="grid gap-10">
+    <div class="prose dark:prose-invert max-w-none">
+      <h1 class="!mb-2">Diamond Bandit</h1>
+      <p class="!mt-0 text-zinc-500">A modern, fast Astro + React website.</p>
+    </div>
+
+    <div>
+      <DiamondBandit client:load />
+    </div>
+
+    <div class="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
+      <ul class="grid gap-2 text-sm">
+        <li>⚡ Lightning-fast static delivery</li>
+        <li>🧩 Interactive islands with React</li>
+        <li>🎨 Tailwind styling</li>
+        <li>🚀 One-click GitHub Pages deploy</li>
+      </ul>
+    </div>
+  </section>
+</Site>
+
