@@ -6,7 +6,7 @@ type EnemyKind = 'square' | 'ball' | 'shard' | 'gust' | 'void';
 
 type EnemyMode = 'wander' | 'seek';
 
-type Enemy = { pos: Vec; vel: Vec; size: number; color: string; kind: EnemyKind; alpha?: number; speed: number; seekChance: number; detectRadius: number; mode: EnemyMode };
+type Enemy = { pos: Vec; vel: Vec; size: number; color: string; kind: EnemyKind; alpha?: number; speed: number; detectRadius: number; mode: EnemyMode; willSeek: boolean };
 
 type GameState =
   | { kind: 'menu' }
@@ -19,7 +19,7 @@ const ENEMY_SIZE = 20;
 const DIAMOND_SIZE = 24;
 const PLAYER_SPEED = 240; // px/s (reduced for higher difficulty)
 const ENEMY_SPEED_BASE = 140; // base px/s (increased for higher difficulty)
-const LEVEL_ENEMIES = [3, 5, 7, 10, 14];
+const LEVEL_ENEMIES = [3, 5, 7, 10, 12];
 const LEVEL_NAMES = ['Desert', 'Ice', 'Fire', 'Wind', 'Void'] as const;
 
 function rand(min: number, max: number) {
@@ -181,8 +181,8 @@ function themeForLevel(level: number) {
         },
         enemyKind: 'void' as EnemyKind,
         enemyColor: '#7c3aed',
-        enemySize: 22,
-        speedBonus: 40,
+        enemySize: 20,
+        speedBonus: 25,
       };
   }
 }
@@ -217,6 +217,8 @@ export default function DiamondBandit() {
 
   function startLevel(level: number) {
     const theme = themeForLevel(level);
+    const homingKinds: EnemyKind[] = ['ball', 'void', 'shard'];
+    const homingEnabledThisLevel = theme.name !== 'Wind';
     const player: Vec = { x: 40, y: CANVAS_LOGICAL.y - 60 };
     const items: { x: number; y: number; w: number; h: number }[] = [
       { x: player.x, y: player.y, w: PLAYER_SIZE, h: PLAYER_SIZE },
@@ -232,10 +234,15 @@ export default function DiamondBandit() {
       const velNorm = { x: rand(-1, 1), y: rand(-1, 1) };
       const len = Math.hypot(velNorm.x, velNorm.y) || 1;
       const vel = { x: (velNorm.x / len) * spd, y: (velNorm.y / len) * spd };
-      const seekChance = Math.min(0.15 + level * 0.1, 0.75);
       const scaledSize = Math.round(theme.enemySize + (level - 1) * 2);
-      const detectRadius = 120 + level * 30; // pixels
-      enemies.push({ pos: { x: pos.x, y: pos.y }, vel, size: scaledSize, color: theme.enemyColor, kind: theme.enemyKind, alpha: theme.enemyKind === 'gust' ? 0.6 : 1, speed: spd, seekChance, detectRadius, mode: 'wander' });
+      // Slightly smaller detection radius on Void to aid balance
+      const baseDetect = 120 + level * 30;
+      const detectRadius = theme.name === 'Void' ? Math.round(baseDetect * 0.8) : baseDetect;
+      const eligible = homingEnabledThisLevel && homingKinds.includes(theme.enemyKind);
+      // 50/50 per-enemy seeking eligibility; Void slightly less likely (35%)
+      const followProb = theme.name === 'Void' ? 0.35 : 0.5;
+      const willSeek = eligible && Math.random() < followProb;
+      enemies.push({ pos: { x: pos.x, y: pos.y }, vel, size: scaledSize, color: theme.enemyColor, kind: theme.enemyKind, alpha: theme.enemyKind === 'gust' ? 0.6 : 1, speed: spd, detectRadius, mode: 'wander', willSeek });
       const s = Math.round(theme.enemySize + (level - 1) * 2);
       items.push({ x: pos.x - s / 2, y: pos.y - s / 2, w: s, h: s });
     }
@@ -287,13 +294,12 @@ export default function DiamondBandit() {
 
       // Enemies movement + bounce
       for (const e of next.enemies) {
-        // Determine behavior mode based on range and chance
-        const homingKinds: EnemyKind[] = ['ball', 'void', 'shard'];
-        if (homingKinds.includes(e.kind)) {
+        // Determine behavior mode based on static per-enemy follow flag and range
+        if (e.willSeek) {
           const dx = (next.player.x + PLAYER_SIZE / 2) - (e.pos.x + e.size / 2);
           const dy = (next.player.y + PLAYER_SIZE / 2) - (e.pos.y + e.size / 2);
           const dist = Math.hypot(dx, dy);
-          if (e.mode === 'wander' && dist < e.detectRadius && Math.random() < e.seekChance) {
+          if (e.mode === 'wander' && dist < e.detectRadius) {
             e.mode = 'seek';
           } else if (e.mode === 'seek' && dist > e.detectRadius * 1.25) {
             e.mode = 'wander';
